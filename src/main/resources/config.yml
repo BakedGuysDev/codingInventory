@@ -1,0 +1,27 @@
+# Do you want to use this command only for specific items?
+# If this is true, players will need the itemstacker.stack.<ITEM> permission.
+# e.g. itemstacker.stack.COBBLESTONE
+# All item names can be found here: https://hub.spigotmc.org/javadocs/spigot/org/bukkit/Material.html
+per-item-perms: true
+
+# Default stack size for every item
+# ! DO NOT SET SIZE HIGHER THAN 127 !
+# Maximum possible stack size of Minecraft vanilla clients is 127
+# Value 0 -> will stack each item on its normal vanilla-default value  
+stack-size: 0
+
+# Different stack size for some items
+# Stack sizes in here will override default stack-size defined above
+# e.g. 'EGG': '32'
+# You need to use Item names, like they are defined here: https://hub.spigotmc.org/javadocs/spigot/org/bukkit/Material.html
+special-sizes:
+  'WATER_BUCKET': '16'
+  'LAVA_BUCKET': '16'
+
+# Define the ingame messages.
+messages:
+  'no-perm': '&7[&eStacker&7]&2 You are not permitted to use this command.'
+  'no-itemperm': '&7[&eStacker&7]&2 You need &a&o<PERM>&2 to stack this item.'
+  'no-player': '&7[&eStacker&7]&2 Only players can use this command.'
+  'no-item': '&7[&eStacker&7]&2 You need to hold the item you want to stack in your hand.'
+  'stacked': '&7[&eStacker&7]&2 All &a&o<TYPE>&2 items has been combined.'
