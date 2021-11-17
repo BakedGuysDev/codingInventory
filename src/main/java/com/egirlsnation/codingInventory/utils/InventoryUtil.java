@@ -347,7 +347,6 @@ public final class InventoryUtil {
 	public static int getInventoryMax(Player player, String worldName, InventoryView view, Inventory inventory, Material mat, short dur, int slot) {
         InventoryType inventoryType = inventory.getType();
 
-        GameMode gamemode = null;
         int maxAmount;
         if (player == null) {
             maxAmount = Config.getItemMax(mat);
@@ -360,7 +359,6 @@ public final class InventoryUtil {
                 maxAmount = maxPlayerAmount;
             }
 
-            gamemode = player.getGameMode();
         }
 
         String invName = "";
@@ -399,7 +397,7 @@ public final class InventoryUtil {
                     maxAmount = 0;
                 }
             }
-        } else if ((inventoryType == InventoryType.PLAYER && slot >= 36 && slot < 40 && gamemode != GameMode.CREATIVE) || (inventoryType == InventoryType.CRAFTING && slot >= 5 && slot < 9)) {
+        } else if ((inventoryType == InventoryType.PLAYER && slot >= 36 && slot < 40) || (inventoryType == InventoryType.CRAFTING && slot >= 5 && slot < 9)) {
             maxAmount = 1;
         } else if (inventoryType == InventoryType.MERCHANT) {
             if (slot >= 0 && slot < 2) {

@@ -14,6 +14,8 @@ import org.bukkit.event.block.BlockIgniteEvent;
 import org.bukkit.event.block.BlockIgniteEvent.IgniteCause;
 import org.bukkit.event.inventory.InventoryAction;
 import org.bukkit.event.inventory.InventoryClickEvent;
+import org.bukkit.event.inventory.InventoryCloseEvent;
+import org.bukkit.event.inventory.InventoryCreativeEvent;
 import org.bukkit.event.inventory.InventoryType;
 import org.bukkit.event.inventory.InventoryType.SlotType;
 import org.bukkit.event.player.*;
@@ -236,26 +238,29 @@ public class PlayerListener implements Listener {
 		}
 	}
 
-	@SuppressWarnings("deprecation")
 	@EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
 	public void inventoryClick(InventoryClickEvent event) {
+		Player player = (Player) event.getWhoClicked();
 
 		// Get inventory information
-		ItemStack cursor = event.getCursor();
+		ItemStack cursor = event.getWhoClicked().getItemOnCursor();
 		ItemStack clicked = event.getCurrentItem();
 		SlotType slotType = event.getSlotType();
 		InventoryView view = event.getView();
 		// Sometimes shit happens so we quit when its time
 		if (cursor == null || clicked == null || slotType == null || view == null) {
-			if (Config.isDebugging()) plugin.log.info("Player clicked outside inventory.");
+			if (Config.isDebugging())
+				plugin.log.info("Player clicked outside inventory.");
 			return;
 		}
 		// Continue getting juicy info
+		Inventory clickedInv = event.getClickedInventory();
+		InventoryType clickedInvType = clickedInv.getType();
 		Inventory top = view.getTopInventory();
 		InventoryType topType = top.getType();
+		@SuppressWarnings("deprecation")
 		String topName = event.getView().getTitle();
 		InventoryAction action = event.getAction();
-		Player player = (Player) event.getWhoClicked();
 		Material cursorType = cursor.getType();
 		int cursorAmount = cursor.getAmount();
 		Material clickedType = clicked.getType();
@@ -268,26 +273,29 @@ public class PlayerListener implements Listener {
 		boolean isPickingVanilla = (cursorEmpty
 				&& (clickedAmount <= clickedType.getMaxStackSize() || clickedAmount > Config.getItemMax(clickedType))
 				&& clickedType != Material.AIR);
-		boolean isPlacingVanilla = false;
-		if (!cursorEmpty) {
-			if (cursorAmount <= cursorType.getMaxStackSize() || clickedAmount > Config.getItemMax(cursorType)) {
-				isPlacingVanilla = true;
-			}
-		}
+		boolean isPlacingVanilla = (!cursorEmpty
+				&& (cursorAmount <= cursorType.getMaxStackSize() || cursorAmount > Config.getItemMax(cursorType))
+				&& clickedType == Material.AIR);
+		boolean isSwappingVanilla = (!cursorEmpty && !slotEmpty && (cursorAmount <= cursorType.getMaxStackSize()
+				|| cursorAmount > Config.getItemMax(cursorType) && clickedAmount <= clickedType.getMaxStackSize()
+				|| clickedAmount > Config.getItemMax(clickedType)));
 
 		// Ignore the inventories we don't want to manage:
 		// Im only dealing with overstacked items cuz fuck the rest i cba rn
-		if (isPickingVanilla && !isPlacingVanilla) {
+		if (isPickingVanilla) {
 			// check the amount being clicked
-			if (Config.isDebugging()) plugin.log.info("Picking stack can be handled by vanilla.");
+			if (Config.isDebugging())
+				plugin.log.info("Picking stack can be handled by vanilla.");
 			return;
-		} else if (!isPickingVanilla && isPlacingVanilla) {
+		} else if (isPlacingVanilla) {
 			// check the amount being placed
-			if (Config.isDebugging()) plugin.log.info("Placing stack can be handled by vanilla.");
+			if (Config.isDebugging())
+				plugin.log.info("Placing stack can be handled by vanilla.");
 			return;
-		} else if (isPickingVanilla && isPlacingVanilla) {
+		} else if (isSwappingVanilla) {
 			// Check the amounts being merged/swapped
-			if (Config.isDebugging()) plugin.log.info("swapping or merging stacks can be handled by vanilla.");
+			if (Config.isDebugging())
+				plugin.log.info("swapping or merging stacks can be handled by vanilla.");
 			return;
 		}
 
@@ -304,7 +312,16 @@ public class PlayerListener implements Listener {
 
 		// Ignore shift click event
 		if (event.isShiftClick()) {
-			if (Config.isDebugging()) plugin.log.info("shift click illegal stacks can be handled by vanilla.");
+			if (Config.isDebugging())
+				plugin.log.info("shift click illegal stacks can be handled by vanilla.");
+			return;
+		}
+
+		// Prevent placing shulkers in other shulkers V2.0 UwU
+		if (clickedInvType == InventoryType.SHULKER_BOX
+				&& cursorType.toString().toLowerCase().contains("shulker_box")) {
+			if (Config.isDebugging())
+				plugin.log.info("Placing shulkers inside shulkers isn't allowed");
 			return;
 		}
 
@@ -312,40 +329,62 @@ public class PlayerListener implements Listener {
 		if (slotType != SlotType.RESULT) {
 			// Fix single click for stacked items
 			if (event.isLeftClick()) {
-				if (Config.isDebugging()) plugin.log.info("LeftClick event caught.");
+				if (Config.isDebugging())
+					plugin.log.info("LeftClick event caught.");
 				// Pick up a stack with an empty hand
 				if (cursorEmpty && !slotEmpty) {
-					if (Config.isDebugging()) plugin.log.info("picking up illegal stack");
-					event.setCursor(clicked.clone());
+					if (Config.isDebugging())
+						plugin.log.info("Picking up illegal stack");
+					event.getWhoClicked().setItemOnCursor(clicked.clone());
 					event.setCurrentItem(null);
 					event.setResult(Result.DENY);
+					// These inventories need a 2 tick update for RecipeManager
+					if (topType == InventoryType.CRAFTING || topType == InventoryType.WORKBENCH) {
+						InventoryUtil.updateInventoryLater(player, 2);
+					} else {
+						InventoryUtil.updateInventory(player);
+					}
 				} else if (!slotEmpty && !cursorEmpty) {
-					if (Config.isDebugging()) plugin.log.info("switching two items.");
-					boolean sameType = clickedType.equals(cursorType);
-					if (sameType) {
-						if (ItemUtil.isSameItem(cursor, clicked)) {
-							// Swap two unstackable items
-							event.setCurrentItem(cursor.clone());
-							event.setCursor(clicked.clone());
-							event.setResult(Result.DENY);
-							// These inventories need a 2 tick update for RecipeManager
-							if (topType == InventoryType.CRAFTING || topType == InventoryType.WORKBENCH)
-								InventoryUtil.updateInventoryLater(player, 2);
+					// It's not possible to do with creative as its client sided
+					if (player.getGameMode() == GameMode.CREATIVE) {
+						plugin.log.info("Swap illegal items in creative disabled");
+						// Creative is a pain in the ass all of it is client sided!
+						event.getWhoClicked().setItemOnCursor(null);
+						event.setCurrentItem(null);
+						event.setResult(Result.DENY);
+						// These inventories need a 2 tick update for RecipeManager
+						if (topType == InventoryType.CRAFTING || topType == InventoryType.WORKBENCH) {
+							InventoryUtil.updateInventoryLater(player, 2);
 						} else {
-							event.setCancelled(true);
+							InventoryUtil.updateInventory(player);
+						}
+					} else {
+						if (Config.isDebugging())
+							plugin.log.info("Switching two items.");
+						boolean sameType = clickedType.equals(cursorType);
+						if (sameType) {
+							if (ItemUtil.isSameItem(cursor, clicked)) {
+								// Swap two unstackable items
+								event.setCurrentItem(cursor.clone());
+								event.getWhoClicked().setItemOnCursor(clicked.clone());
+								event.setResult(Result.DENY);
+								// These inventories need a 2 tick update for RecipeManager
+								if (topType == InventoryType.CRAFTING || topType == InventoryType.WORKBENCH) {
+									InventoryUtil.updateInventoryLater(player, 2);
+								} else {
+									InventoryUtil.updateInventory(player);
+								}
+							} else {
+								event.setCancelled(true);
+							}
 						}
 					}
 				} else if (!cursorEmpty && slotEmpty) {
-					// Disable placing shulkers inside other shulkers
-					if (top.getType() == InventoryType.SHULKER_BOX && cursorType == Material.SHULKER_BOX) {
-						if (Config.isDebugging()) plugin.log.info("Placing shulkers inside shulkers isn't allowed");
-						return;
-					}
-					if (Config.isDebugging()) plugin.log.info("placing illegal stack");
+					if (Config.isDebugging())
+						plugin.log.info("Placing illegal stack");
 					event.setCurrentItem(cursor.clone());
-					event.setCursor(null);
+					event.getWhoClicked().setItemOnCursor(null);
 					event.setResult(Result.DENY);
-
 					// These inventories need a 2 tick update for RecipeManager
 					if (topType == InventoryType.CRAFTING || topType == InventoryType.WORKBENCH) {
 						InventoryUtil.updateInventoryLater(player, 2);
@@ -354,45 +393,99 @@ public class PlayerListener implements Listener {
 					}
 				}
 			} else if (event.isRightClick()) {
-				if (Config.isDebugging()) plugin.log.info("RightClick event caught.");
+				if (Config.isDebugging())
+					plugin.log.info("RightClick event caught.");
 				if (!slotEmpty && !cursorEmpty) {
-					if (Config.isDebugging()) plugin.log.info("swapping two overstacked items.");
+					if (Config.isDebugging())
+						plugin.log.info("swapping two overstacked items.");
 					// Swap two unstackable items
 					if (ItemUtil.isSameItem(cursor, clicked)) {
 						// Swap two unstackable items
 						event.setCurrentItem(cursor.clone());
-						event.setCursor(clicked.clone());
+						event.getWhoClicked().setItemOnCursor(clicked.clone());
 						event.setResult(Result.DENY);
 						// These inventories need a 2 tick update for RecipeManager
-						if (topType == InventoryType.CRAFTING || topType == InventoryType.WORKBENCH)
+						if (topType == InventoryType.CRAFTING || topType == InventoryType.WORKBENCH) {
 							InventoryUtil.updateInventoryLater(player, 2);
+						} else {
+							InventoryUtil.updateInventory(player);
+						}
 					} else {
 						event.setCancelled(true);
 					}
 				} else if (!slotEmpty && cursorEmpty) {
-					if (Config.isDebugging()) plugin.log.info("picking up half of overstacked item");
+					if (Config.isDebugging())
+						plugin.log.info("picking up half of overstacked item");
 					// Pickup half a stack
 					int maxPickup = (int) Math.round((clickedAmount + 0.5) / 2);
 					ItemStack clone = clicked.clone();
 					ItemStack clone2 = clicked.clone();
 					clone.setAmount(maxPickup);
-					event.setCursor(clone);
+					event.getWhoClicked().setItemOnCursor(clone);
 					clone2.setAmount(clickedAmount - maxPickup);
 					event.setCurrentItem(clone2);
 					event.setResult(Result.DENY);
+					// These inventories need a 2 tick update for RecipeManager
+					if (topType == InventoryType.CRAFTING || topType == InventoryType.WORKBENCH) {
+						InventoryUtil.updateInventoryLater(player, 2);
+					} else {
+						InventoryUtil.updateInventory(player);
+					}
 				} else if (slotEmpty && !cursorEmpty) {
-					if (Config.isDebugging()) plugin.log.info("Placing half a stack");
+					if (Config.isDebugging())
+						plugin.log.info("Placing half a stack");
 					// Placing half a stack
 					int maxPlace = (int) Math.round((cursorAmount + 0.5) / 2);
 					ItemStack clone = cursor.clone();
 					ItemStack clone2 = cursor.clone();
 					clone.setAmount(maxPlace);
-					event.setCursor(clone);
+					event.getWhoClicked().setItemOnCursor(clone);
 					clone2.setAmount(cursorAmount - maxPlace);
 					event.setCurrentItem(clone2);
 					event.setResult(Result.DENY);
+					// These inventories need a 2 tick update for RecipeManager
+					if (topType == InventoryType.CRAFTING || topType == InventoryType.WORKBENCH) {
+						InventoryUtil.updateInventoryLater(player, 2);
+					} else {
+						InventoryUtil.updateInventory(player);
+					}
 				}
 			}
 		}
 	}
+
+	// Close inventory listener for players who keep overstacked items in their
+	// cursor we must force drop overstacked items in cursor otherwise vanilla will
+	// break them in the inventory then drop the rest
+	@EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+	public void invClose(InventoryCloseEvent event) {
+		if (Config.isDebugging())
+			plugin.log.info("Inventory close event caught");
+
+		Player p = (Player) event.getPlayer();
+		ItemStack cursor = p.getItemOnCursor();
+		InventoryView view = event.getView();
+		Inventory top = view.getTopInventory();
+		InventoryType topType = top.getType();
+		boolean isHoldingVanilla = (cursor.getType() == Material.AIR
+				|| (cursor.getAmount() <= cursor.getType().getMaxStackSize()
+						|| cursor.getAmount() > Config.getItemMax(cursor.getType())));
+
+		if (!isHoldingVanilla) {
+			// Drop the items in the cursor on the ground as a stack
+			p.getWorld().dropItem(p.getLocation().add(0, 1, 0), cursor);
+			// Remove items from the cursor
+			p.setItemOnCursor(null);
+			if (topType == InventoryType.CRAFTING || topType == InventoryType.WORKBENCH) {
+				InventoryUtil.updateInventoryLater(p, 2);
+			} else {
+				InventoryUtil.updateInventory(p);
+			}
+		} else {
+			if (Config.isDebugging())
+				plugin.log.info("Cursor stack can be handled by vanilla.");
+		}
+
+	}
+
 }
