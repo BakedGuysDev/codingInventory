@@ -15,7 +15,7 @@ import org.bukkit.event.block.BlockIgniteEvent.IgniteCause;
 import org.bukkit.event.inventory.InventoryAction;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.inventory.InventoryCloseEvent;
-import org.bukkit.event.inventory.InventoryCreativeEvent;
+import org.bukkit.event.inventory.InventoryDragEvent;
 import org.bukkit.event.inventory.InventoryType;
 import org.bukkit.event.inventory.InventoryType.SlotType;
 import org.bukkit.event.player.*;
@@ -239,6 +239,31 @@ public class PlayerListener implements Listener {
 	}
 
 	@EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+	public void inventoryClick(InventoryDragEvent event) {
+
+		Player player = (Player) event.getWhoClicked();
+
+		Inventory inventory = event.getInventory();
+		InventoryType invType = inventory.getType();
+
+		// Creative patches
+		if (player.getGameMode() == GameMode.CREATIVE && invType == InventoryType.CRAFTING) {
+
+			if (Config.isDebugging())
+				plugin.log.warning("Player " + player.getName() + " is trying to steal items from creative.");
+
+			event.setResult(Result.DENY);
+			player.setGameMode(GameMode.SURVIVAL);
+
+			// Clear cursor 2 ticks after
+			Bukkit.getScheduler().runTaskLater(plugin,
+					() -> event.getWhoClicked().setItemOnCursor(new ItemStack(Material.AIR)), 2);
+
+		}
+
+	}
+
+	@EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
 	public void inventoryClick(InventoryClickEvent event) {
 		Player player = (Player) event.getWhoClicked();
 
@@ -279,6 +304,25 @@ public class PlayerListener implements Listener {
 		boolean isSwappingVanilla = (!cursorEmpty && !slotEmpty && (cursorAmount <= cursorType.getMaxStackSize()
 				|| cursorAmount > Config.getItemMax(cursorType) && clickedAmount <= clickedType.getMaxStackSize()
 				|| clickedAmount > Config.getItemMax(clickedType)));
+
+		// Creative patches
+		if (player.getGameMode() == GameMode.CREATIVE && slotType == SlotType.CONTAINER
+				&& clickedInvType == InventoryType.CRAFTING) {
+
+			if (Config.isDebugging())
+				plugin.log.warning("Player " + player.getName() + " is trying to steal items from creative.");
+
+			event.getWhoClicked().setItemOnCursor(new ItemStack(Material.AIR));
+			event.setCurrentItem(new ItemStack(Material.AIR));
+
+			event.setResult(Result.DENY);
+			
+			InventoryUtil.updateInventoryLater(player, 2);
+			player.setGameMode(GameMode.SURVIVAL);
+			
+			return;
+
+		}
 
 		// Ignore the inventories we don't want to manage:
 		// Im only dealing with overstacked items cuz fuck the rest i cba rn
